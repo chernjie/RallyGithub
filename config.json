@@ -9,6 +9,7 @@
         "changeset/model/Comment.js",
         "changeset/model/Commit.js",
         "changeset/model/ChangesetFile.js",
+        "changeset/model/Organization.js",
         "changeset/model/Repository.js",
 
         "changeset/data/CommentLocator.js",

@@ -77,6 +77,13 @@
                     {name: 'changes', type: 'integer'},
                     {name: 'diff', type: 'string'}
                 ]
+            });            Ext.define('changeset.model.Organization', {
+                extend: 'Ext.data.Model',
+                idProperty: 'login',
+                fields: [
+                    {name: 'url', type: 'string'},
+                    {name: 'login', type: 'string'}
+                ]
             });            Ext.define('changeset.model.Repository', {
                 extend: 'Ext.data.Model',
                 idProperty: 'name',
@@ -224,7 +231,7 @@
                  * Base url for all Github api requests.
                  */
                 apiUrl: 'https://api.github.com',
-                
+            
                 /**
                  * @cfg {Int}
                  * Page size to use for api calls.
@@ -237,7 +244,7 @@
             
                 constructor: function(config) {
                     Ext.apply(this, config);
-                    
+            
                     var urlParts = window.location.href.split('?');
                     this.stateId = 'githubAdapter-' + urlParts[0];
                     if (urlParts.length > 1) {
@@ -284,6 +291,7 @@
                         username: this.username,
                         authToken: this.authToken,
                         repository: this.repository,
+                        organization: this.organization,
                         branch: this.branch
                     };
                 },
@@ -294,6 +302,14 @@
                  */
                 getLoginMessage: function() {
                     return 'Login to your GitHub account';
+                },
+            
+                /**
+                 * Get the currently logged in user's username
+                 * @return {String}
+                 */
+                getUserName: function() {
+                    return this.username;
                 },
             
                 /**
@@ -317,10 +333,31 @@
                  * @param {changeset.model.Repository}
                  */
                 setRepository: function(repository) {
-                    if( !this.repository || this.repository.name !== repository.raw.name ) {
+                    if( !this.repository || this.repository.name !== repository.get('name') ) {
                         this.branch = null;
                     }
                     this.repository = repository.raw;
+                    this.fireEvent('statechange', this);
+                },
+            
+                /*
+                 * Gets the currently selected organization.
+                 * @return {Object}
+                 */
+                getOrganization: function() {
+                    return this.organization;
+                },
+            
+                /*
+                 * Set the repository to fetch data from.
+                 * @param {changeset.model.Repository}
+                 */
+                setOrganization: function(organization) {
+                    if (!this.organization || this.organization.login !== organization.get('login')) {
+                        this.repository = null;
+                        this.branch = null;
+                    }
+                    this.organization = organization.raw || organization.data;
                     this.fireEvent('statechange', this);
                 },
             
@@ -342,22 +379,77 @@
                 },
             
                 /**
+                 * Constructs a store which populates organization models.
+                 * @param {Function} callback Function to call after store is created.
+                 * @param {Object} scope Scope to execute callback with.
+                 */
+                getOrganizationStore: function(callback, scope) {
+                    var url = [
+                        this.apiUrl,
+                        'users',
+                        this.username,
+                        'orgs'
+                    ].join('/');
+            
+                    var store = Ext.create('Ext.data.Store', {
+                        model: 'changeset.model.Organization',
+                        proxy: Ext.create('changeset.data.github.Proxy', {
+                            url: url
+                        })
+                    });
+            
+                    callback.call(scope, store);
+                },
+            
+                /**
                  * Constructs a store which populates repository models.
                  * @param {Function} callback Function to call after store is created.
                  * @param {Object} scope Scope to execute callback with.
                  */
                 getRepositoryStore: function(callback, scope) {
-                    var url = [
-                        this.apiUrl,
-                        'user',
-                        'repos'
-                    ].join('/');
+                    var url = [this.apiUrl];
+            
+                    if (this.organization.url) {
+                        url = url.concat([
+                            'orgs',
+                            this.organization.login,
+                            'repos'
+                        ]);
+                    } else {
+                        url = url.concat([
+                            'user',
+                            'repos'
+                        ]);
+                    }
             
                     var store = Ext.create('Ext.data.Store', {
                         model: 'changeset.model.Repository',
                         proxy: Ext.create('changeset.data.github.Proxy', {
-                            url: url
-                        })
+                            url: url.join('/')
+                        }),
+                        buffered: true,
+                        pageSize: this.pageSize,
+                        listeners: {
+                            load: {
+                                fn: function(store, records, successful, eOpts) {
+                                    if (successful && records.length === store.pageSize) {
+                                        store.prefetchPage(store.currentPage + 1);
+                                        return false;
+                                    }
+                                },
+                                single: true
+                            },
+                            prefetch: function(store, records, successful, operation, eOpts) {
+                                if (successful) {
+                                    store.add(records);
+                                    if (records.length === store.pageSize) {
+                                        store.prefetchPage(store.currentPage + 1);
+                                    } else {
+                                        store.fireEvent('load');
+                                    }
+                                }
+                            }
+                        }
                     });
             
                     callback.call(scope, store);
@@ -462,7 +554,7 @@
                             }
                         })
                     });
-                    
+            
                     callback.call(scope, store);
                 },
             
@@ -513,7 +605,7 @@
                  * @param {String} password Password to login with.
                  */
                 authenticate: function(username, password) {
-                    this.username = username;
+                    this.username = username;               
             
                     Ext.Ajax.request({
                         url: this.apiUrl + '/authorizations',
@@ -548,6 +640,7 @@
                  */
                 logout: function() {
                     this.repository = null;
+                    this.organization = null;
                     this.branch = null;
                     this.username = null;
                     this.authToken = null;
@@ -600,7 +693,7 @@
                     }
                 },
             
-                _onBeforeAjaxRequest: function(ext, opts) {
+                _onBeforeAjaxRequest: function(ext, opts) { 
                     if (Ext.isEmpty(opts.headers)) {
                         opts.headers = {};
                     }
@@ -672,6 +765,13 @@
                 ],
             
                 model: 'changeset.model.Commit',
+            
+                constructor: function() {
+                    this.callParent(arguments);
+                    this.on('beforeload', function(store, operation, eOpts) {
+                        this._addShaToOptions(1);
+                    }, this, {single:true});
+                },
             
                 /**
                  * Github's commit endpoint's paging is a little funky.
@@ -1684,39 +1784,62 @@
                             }]
                     });
             
+                    this._addOrganizationChooser();
+                },
+            
+                _addOrganizationChooser: function() {
+                    var toolbar = this.down('#topToolbar'),
+                        valueField = 'login';
+            
+                    this.adapter.getOrganizationStore(function(store) {
+                        var combo = toolbar.insert(2, {
+                            xtype: 'rallycombobox',
+                            margin: '0 5 0 0',
+                            store: store,
+                            fieldLabel: 'Org:',
+                            labelWidth: 30,
+                            displayField: valueField,
+                            // allowNoEntry: true,
+                            // noEntryText: this.adapter.getUserName(),
+                            listeners: {
+                                beforeselect: function(combo, record) {
+                                    if (record && record.get('login') !== this.adapter.getOrganization().login) {
+                                        this._onOrganizationSelect(record);
+                                    }
+                                },
+                                scope: this
+                            }
+                        });
+            
+                        store.on('load', function() {
+                            store.insert(0, [{login: this.adapter.getUserName(), url: null}]);
+                            var org = this.adapter.getOrganization(),
+                                selectedOrg = org ? store.findRecord('login', org.login) : store.getAt(0);
+                            combo.select(selectedOrg);
+                            this._onOrganizationSelect(selectedOrg);
+                        }, this, {single: true});
+                        store.load();
+                    }, this);
+                },
+            
+                _onOrganizationSelect: function(organization) {
+                    this.adapter.setOrganization(organization);
+                    this.removeAll();
                     this._addRepoChooser();
                 },
             
-                _addFilter: function() {
-                    if (this.down('changesetfilter')) {
-                        return;
+                _addRepoChooser: function() {
+                    var toolbar = this.down('#topToolbar'),
+                        valueField = 'name',
+                        combo = toolbar.down('#repoChooser');
+                    if (combo) {
+                        toolbar.remove(combo);
                     }
             
-                    var toolbar = this.down('#topToolbar');
-                    var filter = toolbar.insert(4, {
-                        xtype: 'changesetfilter',
-                        width: 210,
-                        listeners: {
-                            filter: this._onFilter,
-                            afterrender: function(cmp) {
-                                var tip = Ext.create('Rally.ui.tooltip.ToolTip', {
-                                    target: cmp.getEl(),
-                                    anchor: 'right',
-                                    hideDelay: 0,
-                                    html: 'Filter commits by: <br /> <ul><li>-- message</li><li>-- author</li><li>-- revision</li></ul>'
-                                });
-                            },
-                            scope: this
-                        }
-                    });
-                },
-            
-                _addRepoChooser: function() {
-                    var toolbar = this.down('#topToolbar');
-                    var valueField = 'name';
                     this.adapter.getRepositoryStore(function(store) {
-                        var combo = toolbar.insert(2, {
+                        var combo = toolbar.insert(3, {
                             xtype: 'rallycombobox',
+                            itemId: 'repoChooser',
                             margin: '0 5 0 0',
                             store: store,
                             fieldLabel: 'Repo:',
@@ -1735,9 +1858,12 @@
                         store.on('load', function() {
                             var repo = this.adapter.getRepository();
                             var selectedRepo = repo ? store.findRecord('name', repo.name) : store.getAt(0);
-                            combo.select(selectedRepo);
-                            this._onRepositorySelect(selectedRepo);
+                            if (selectedRepo) {
+                                combo.select(selectedRepo);
+                                this._onRepositorySelect(selectedRepo);
+                            }
                         }, this, {single: true});
+            
                         store.load();
                     }, this);
                 },
@@ -1757,7 +1883,7 @@
             
                     var valueField = 'name';
                     this.adapter.getBranchStore(function(store) {
-                        combo = toolbar.insert(3, {
+                        combo = toolbar.insert(4, {
                             xtype: 'rallycombobox',
                             itemId: 'branchChooser',
                             margin: '0 5 0 0',
@@ -1776,8 +1902,11 @@
                         });
             
                         store.on('load', function() {
-                            var branch = this.adapter.getBranch();
-                            var selectedBranch = branch ? store.findRecord('name', branch.name) : store.getAt(0);
+                            var currentBranch = this.adapter.getBranch(),
+                                branchName = currentBranch ? currentBranch.name : 'master',
+                                selectedBranch = store.findRecord('name', branchName);
+                            selectedBranch = selectedBranch || store.getAt(0);
+            
                             combo.select(selectedBranch);
                             this._onBranchSelect(selectedBranch);
                         }, this, {single: true});
@@ -1790,6 +1919,30 @@
                     this.removeAll();
                     this._addFilter();
                     this._addGrid();
+                },
+            
+                _addFilter: function() {
+                    if (this.down('changesetfilter')) {
+                        return;
+                    }
+            
+                    var toolbar = this.down('#topToolbar');
+                    var filter = toolbar.insert(5, {
+                        xtype: 'changesetfilter',
+                        width: 210,
+                        listeners: {
+                            filter: this._onFilter,
+                            afterrender: function(cmp) {
+                                var tip = Ext.create('Rally.ui.tooltip.ToolTip', {
+                                    target: cmp.getEl(),
+                                    anchor: 'right',
+                                    hideDelay: 0,
+                                    html: 'Filter commits by: <br /> <ul><li>-- message</li><li>-- author</li><li>-- revision</li></ul>'
+                                });
+                            },
+                            scope: this
+                        }
+                    });
                 },
             
                 _addGrid: function() {
