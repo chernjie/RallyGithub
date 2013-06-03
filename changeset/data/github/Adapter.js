@@ -45,7 +45,7 @@ Ext.define('changeset.data.github.Adapter', {
      * Base url for all Github api requests.
      */
     apiUrl: 'https://api.github.com',
-    
+
     /**
      * @cfg {Int}
      * Page size to use for api calls.
@@ -58,7 +58,7 @@ Ext.define('changeset.data.github.Adapter', {
 
     constructor: function(config) {
         Ext.apply(this, config);
-        
+
         var urlParts = window.location.href.split('?');
         this.stateId = 'githubAdapter-' + urlParts[0];
         if (urlParts.length > 1) {
@@ -105,6 +105,7 @@ Ext.define('changeset.data.github.Adapter', {
             username: this.username,
             authToken: this.authToken,
             repository: this.repository,
+            organization: this.organization,
             branch: this.branch
         };
     },
@@ -115,6 +116,14 @@ Ext.define('changeset.data.github.Adapter', {
      */
     getLoginMessage: function() {
         return 'Login to your GitHub account';
+    },
+
+    /**
+     * Get the currently logged in user's username
+     * @return {String}
+     */
+    getUserName: function() {
+        return this.username;
     },
 
     /**
@@ -138,10 +147,31 @@ Ext.define('changeset.data.github.Adapter', {
      * @param {changeset.model.Repository}
      */
     setRepository: function(repository) {
-        if( !this.repository || this.repository.name !== repository.raw.name ) {
+        if( !this.repository || this.repository.name !== repository.get('name') ) {
             this.branch = null;
         }
         this.repository = repository.raw;
+        this.fireEvent('statechange', this);
+    },
+
+    /*
+     * Gets the currently selected organization.
+     * @return {Object}
+     */
+    getOrganization: function() {
+        return this.organization;
+    },
+
+    /*
+     * Set the repository to fetch data from.
+     * @param {changeset.model.Repository}
+     */
+    setOrganization: function(organization) {
+        if (!this.organization || this.organization.login !== organization.get('login')) {
+            this.repository = null;
+            this.branch = null;
+        }
+        this.organization = organization.raw || organization.data;
         this.fireEvent('statechange', this);
     },
 
@@ -163,22 +193,77 @@ Ext.define('changeset.data.github.Adapter', {
     },
 
     /**
+     * Constructs a store which populates organization models.
+     * @param {Function} callback Function to call after store is created.
+     * @param {Object} scope Scope to execute callback with.
+     */
+    getOrganizationStore: function(callback, scope) {
+        var url = [
+            this.apiUrl,
+            'users',
+            this.username,
+            'orgs'
+        ].join('/');
+
+        var store = Ext.create('Ext.data.Store', {
+            model: 'changeset.model.Organization',
+            proxy: Ext.create('changeset.data.github.Proxy', {
+                url: url
+            })
+        });
+
+        callback.call(scope, store);
+    },
+
+    /**
      * Constructs a store which populates repository models.
      * @param {Function} callback Function to call after store is created.
      * @param {Object} scope Scope to execute callback with.
      */
     getRepositoryStore: function(callback, scope) {
-        var url = [
-            this.apiUrl,
-            'user',
-            'repos'
-        ].join('/');
+        var url = [this.apiUrl];
+
+        if (this.organization.url) {
+            url = url.concat([
+                'orgs',
+                this.organization.login,
+                'repos'
+            ]);
+        } else {
+            url = url.concat([
+                'user',
+                'repos'
+            ]);
+        }
 
         var store = Ext.create('Ext.data.Store', {
             model: 'changeset.model.Repository',
             proxy: Ext.create('changeset.data.github.Proxy', {
-                url: url
-            })
+                url: url.join('/')
+            }),
+            buffered: true,
+            pageSize: this.pageSize,
+            listeners: {
+                load: {
+                    fn: function(store, records, successful, eOpts) {
+                        if (successful && records.length === store.pageSize) {
+                            store.prefetchPage(store.currentPage + 1);
+                            return false;
+                        }
+                    },
+                    single: true
+                },
+                prefetch: function(store, records, successful, operation, eOpts) {
+                    if (successful) {
+                        store.add(records);
+                        if (records.length === store.pageSize) {
+                            store.prefetchPage(store.currentPage + 1);
+                        } else {
+                            store.fireEvent('load');
+                        }
+                    }
+                }
+            }
         });
 
         callback.call(scope, store);
@@ -282,7 +367,7 @@ Ext.define('changeset.data.github.Adapter', {
                 }
             })
         });
-        
+
         callback.call(scope, store);
     },
 
@@ -333,7 +418,7 @@ Ext.define('changeset.data.github.Adapter', {
      * @param {String} password Password to login with.
      */
     authenticate: function(username, password) {
-        this.username = username;
+        this.username = username;               
 
         Ext.Ajax.request({
             url: this.apiUrl + '/authorizations',
@@ -368,6 +453,7 @@ Ext.define('changeset.data.github.Adapter', {
      */
     logout: function() {
         this.repository = null;
+        this.organization = null;
         this.branch = null;
         this.username = null;
         this.authToken = null;
@@ -420,7 +506,7 @@ Ext.define('changeset.data.github.Adapter', {
         }
     },
 
-    _onBeforeAjaxRequest: function(ext, opts) {
+    _onBeforeAjaxRequest: function(ext, opts) { 
         if (Ext.isEmpty(opts.headers)) {
             opts.headers = {};
         }

@@ -56,39 +56,62 @@ Ext.define('changeset.ui.ChangesetBrowser', {
                 }]
         });
 
+        this._addOrganizationChooser();
+    },
+
+    _addOrganizationChooser: function() {
+        var toolbar = this.down('#topToolbar'),
+            valueField = 'login';
+
+        this.adapter.getOrganizationStore(function(store) {
+            var combo = toolbar.insert(2, {
+                xtype: 'rallycombobox',
+                margin: '0 5 0 0',
+                store: store,
+                fieldLabel: 'Org:',
+                labelWidth: 30,
+                displayField: valueField,
+                // allowNoEntry: true,
+                // noEntryText: this.adapter.getUserName(),
+                listeners: {
+                    beforeselect: function(combo, record) {
+                        if (record && record.get('login') !== this.adapter.getOrganization().login) {
+                            this._onOrganizationSelect(record);
+                        }
+                    },
+                    scope: this
+                }
+            });
+
+            store.on('load', function() {
+                store.insert(0, [{login: this.adapter.getUserName(), url: null}]);
+                var org = this.adapter.getOrganization(),
+                    selectedOrg = org ? store.findRecord('login', org.login) : store.getAt(0);
+                combo.select(selectedOrg);
+                this._onOrganizationSelect(selectedOrg);
+            }, this, {single: true});
+            store.load();
+        }, this);
+    },
+
+    _onOrganizationSelect: function(organization) {
+        this.adapter.setOrganization(organization);
+        this.removeAll();
         this._addRepoChooser();
     },
 
-    _addFilter: function() {
-        if (this.down('changesetfilter')) {
-            return;
+    _addRepoChooser: function() {
+        var toolbar = this.down('#topToolbar'),
+            valueField = 'name',
+            combo = toolbar.down('#repoChooser');
+        if (combo) {
+            toolbar.remove(combo);
         }
 
-        var toolbar = this.down('#topToolbar');
-        var filter = toolbar.insert(4, {
-            xtype: 'changesetfilter',
-            width: 210,
-            listeners: {
-                filter: this._onFilter,
-                afterrender: function(cmp) {
-                    var tip = Ext.create('Rally.ui.tooltip.ToolTip', {
-                        target: cmp.getEl(),
-                        anchor: 'right',
-                        hideDelay: 0,
-                        html: 'Filter commits by: <br /> <ul><li>-- message</li><li>-- author</li><li>-- revision</li></ul>'
-                    });
-                },
-                scope: this
-            }
-        });
-    },
-
-    _addRepoChooser: function() {
-        var toolbar = this.down('#topToolbar');
-        var valueField = 'name';
         this.adapter.getRepositoryStore(function(store) {
-            var combo = toolbar.insert(2, {
+            var combo = toolbar.insert(3, {
                 xtype: 'rallycombobox',
+                itemId: 'repoChooser',
                 margin: '0 5 0 0',
                 store: store,
                 fieldLabel: 'Repo:',
@@ -107,9 +130,12 @@ Ext.define('changeset.ui.ChangesetBrowser', {
             store.on('load', function() {
                 var repo = this.adapter.getRepository();
                 var selectedRepo = repo ? store.findRecord('name', repo.name) : store.getAt(0);
-                combo.select(selectedRepo);
-                this._onRepositorySelect(selectedRepo);
+                if (selectedRepo) {
+                    combo.select(selectedRepo);
+                    this._onRepositorySelect(selectedRepo);
+                }
             }, this, {single: true});
+
             store.load();
         }, this);
     },
@@ -129,7 +155,7 @@ Ext.define('changeset.ui.ChangesetBrowser', {
 
         var valueField = 'name';
         this.adapter.getBranchStore(function(store) {
-            combo = toolbar.insert(3, {
+            combo = toolbar.insert(4, {
                 xtype: 'rallycombobox',
                 itemId: 'branchChooser',
                 margin: '0 5 0 0',
@@ -148,8 +174,11 @@ Ext.define('changeset.ui.ChangesetBrowser', {
             });
 
             store.on('load', function() {
-                var branch = this.adapter.getBranch();
-                var selectedBranch = branch ? store.findRecord('name', branch.name) : store.getAt(0);
+                var currentBranch = this.adapter.getBranch(),
+                    branchName = currentBranch ? currentBranch.name : 'master',
+                    selectedBranch = store.findRecord('name', branchName);
+                selectedBranch = selectedBranch || store.getAt(0);
+
                 combo.select(selectedBranch);
                 this._onBranchSelect(selectedBranch);
             }, this, {single: true});
@@ -162,6 +191,30 @@ Ext.define('changeset.ui.ChangesetBrowser', {
         this.removeAll();
         this._addFilter();
         this._addGrid();
+    },
+
+    _addFilter: function() {
+        if (this.down('changesetfilter')) {
+            return;
+        }
+
+        var toolbar = this.down('#topToolbar');
+        var filter = toolbar.insert(5, {
+            xtype: 'changesetfilter',
+            width: 210,
+            listeners: {
+                filter: this._onFilter,
+                afterrender: function(cmp) {
+                    var tip = Ext.create('Rally.ui.tooltip.ToolTip', {
+                        target: cmp.getEl(),
+                        anchor: 'right',
+                        hideDelay: 0,
+                        html: 'Filter commits by: <br /> <ul><li>-- message</li><li>-- author</li><li>-- revision</li></ul>'
+                    });
+                },
+                scope: this
+            }
+        });
     },
 
     _addGrid: function() {

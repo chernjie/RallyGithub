@@ -10,6 +10,13 @@ Ext.define('changeset.data.github.CommitStore', {
 
     model: 'changeset.model.Commit',
 
+    constructor: function() {
+        this.callParent(arguments);
+        this.on('beforeload', function(store, operation, eOpts) {
+            this._addShaToOptions(1);
+        }, this, {single:true});
+    },
+
     /**
      * Github's commit endpoint's paging is a little funky.
      *
