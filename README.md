@@ -1,3 +1,6 @@
+AppTemplate for Rally SDK
+=========================
+
 ## Overview
 
 RallyGithub is an integration between Rally and Github, written using the Rally App SDK 2.0.
