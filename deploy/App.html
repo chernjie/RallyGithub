@@ -3,7 +3,7 @@
 <head>
     <title>RallyGithub</title>
 
-    <script type="text/javascript" src="/apps/2.0p2/sdk.js"></script>
+    <script type="text/javascript" src="/apps/2.0p5/sdk.js"></script>
 
     <script type="text/javascript">
         Rally.onReady(function() {
@@ -134,49 +134,87 @@
                 extend: 'Ext.data.proxy.Rest',
             
                 statics: {
-                    // extract functions are used to normalize data objects coming in from the server
-                    extractCommitValues: function(data) {
-                        var output = {
-                            revision: data.sha,
-                            url: data.url,
-                            author: data.author,
-                            avatarUrl: data.author ? data.author.avatar_url : null,
-                            parents: data.parents
+                    extractCommitData: function(data) {
+                        var extractCommitValues =  function(data) {
+                            var output = {
+                                revision: data.sha,
+                                url: data.url,
+                                author: data.author,
+                                avatarUrl: data.author ? data.author.avatar_url : null,
+                                parents: data.parents
+                            };
+            
+                            var commit = data.commit;
+                            if (commit) {
+                                Ext.apply(output, commit);
+                                output.timestamp = commit.author.date;
+                            }
+                            return output;
                         };
             
-                        var commit = data.commit;
-                        if (commit) {
-                            Ext.apply(output, commit);
-                            output.timestamp = commit.author.date;
-                        }
-                        return output;
+                        var recordArray = [];
+                        Ext.Array.each(data, function(dataItem) { 
+                            recordArray.push(Ext.create('changeset.model.Commit', extractCommitValues(dataItem)));
+                        });
+                        
+                        var result_set = new Ext.data.ResultSet({
+                            records: recordArray,
+                            success: true
+                        });
+                        return result_set;  
+            
                     },
             
                     extractChangesetFileValues: function(data) {
-                        var output = {
-                            status: data.status,
-                            filename: data.filename,
-                            url: data.raw_url,
-                            deletions: data.deletions,
-                            additions: data.additions,
-                            changes: data.changes,
-                            diff: data.patch
+                        var extractChangeSetFiles = function(data) {
+                            var output = {
+                                status: data.status,
+                                filename: data.filename,
+                                url: data.raw_url,
+                                deletions: data.deletions,
+                                additions: data.additions,
+                                changes: data.changes,
+                                diff: data.patch
+                            };
+                            return output;
                         };
-                        return output;
+            
+                        var recordArray = [];
+                        Ext.Array.each(data.files, function(dataItem) {
+                            recordArray.push(Ext.create('changeset.model.ChangesetFile', extractChangeSetFiles(dataItem)))
+                        });
+                        var result_set = new Ext.data.ResultSet({
+                            records: recordArray,
+                            success: true
+                        });
+                        return result_set;
                     },
                     
                     extractCommentValues: function(data) {
-                        var output = {
-                            revision: data.commit_id,
-                            filename: data.path,
-                            lineNumber: data.position,
-                            comment: data.body,
-                            timestamp: data.created_at,
-                            user: data.user,
-                            avatarUrl: data.user ? data.user.avatar_url : null
-                        };
-                        return output;
-                    }
+                        var recordArray = [];
+                        Ext.Array.each(data, function(dataItem) {
+                            recordArray.push(Ext.create('changeset.model.Comment', changeset.data.github.Proxy.extractComment(dataItem)))
+                        });
+            
+                        var result_set = new Ext.data.ResultSet({
+                            records: recordArray,
+                            success: true
+                        });
+                        return result_set;
+                    },
+            
+                    extractComment: function(data) {
+                            var output = {
+                                revision: data.commit_id,
+                                filename: data.path,
+                                lineNumber: data.position,
+                                comment: data.body,
+                                timestamp: data.created_at,
+                                user: data.user,
+                                avatarUrl: data.user ? data.user.avatar_url : null
+                            };
+                            return output;
+                        }
                 },
             
                 cors: true,
@@ -230,7 +268,7 @@
                  * @cfg {String}
                  * Base url for all Github api requests.
                  */
-                apiUrl: 'https://api.github.com',
+                apiUrl: 'https://github.paypal.com/api/v3',
             
                 /**
                  * @cfg {Int}
@@ -317,7 +355,7 @@
                  * @return {String}
                  */
                 getRepositoryUrl: function() {
-                    return 'https://github.com/' + this._getRepoPath();
+                    return 'https://github.paypal.com/' + this._getRepoPath();
                 },
             
                 /*
@@ -518,8 +556,7 @@
                             url: url,
                             reader: {
                                 type: 'json',
-                                root: 'files',
-                                extractValues: changeset.data.github.Proxy.extractChangesetFileValues
+                                readRecords: changeset.data.github.Proxy.extractChangesetFileValues
                             }
                         })
                     });
@@ -550,7 +587,7 @@
                             url: url,
                             reader: {
                                 type: 'json',
-                                extractValues: changeset.data.github.Proxy.extractCommentValues
+                                readRecords: changeset.data.github.Proxy.extractCommentValues
                             }
                         })
                     });
@@ -588,7 +625,7 @@
                         success: function(response, opts) {
                             if (callback) {
                                 var data = Ext.decode(response.responseText);
-                                var record = new changeset.model.Comment(changeset.data.github.Proxy.extractCommentValues(data));
+                                var record = new changeset.model.Comment(changeset.data.github.Proxy.extractComment(data));
                                 callback.call(scope, record);
                             }
                         },
@@ -726,12 +763,17 @@
                              url: url,
                              reader: {
                                  type: 'json',
-                                 extractValues: changeset.data.github.Proxy.extractCommitValues
+                                 readRecords: changeset.data.github.Proxy.extractCommitData 
                              }
                          })
                     });
-            
-                    callback.call(scope, commitStore);
+                    commitStore.load({
+                        scope: this,
+                        callback: function(records, operation, success) {
+                            callback.call(scope, commitStore);    
+                        }
+                    });
+                    
                 },
             
                 _getChangeset: function(record, callback, scope) {
@@ -1760,6 +1802,8 @@
                 _populateToolbar: function() {
                     this.addDocked({
                         itemId: 'topToolbar',
+                        xtype: 'toolbar',
+                        cls: 'changeset-browser-toolbar',
                         dock: 'top',
                         border: 0,
                         padding: 5,
@@ -1955,7 +1999,7 @@
                             model: 'changeset.model.Commit',
                             store: store
                         });
-                        store.load();
+                        //store.load();
                         grid.setTitle(Ext.String.format('Commits for <a href="{0}" target="_blank">{1}</a>',
                                 this.adapter.getRepositoryUrl(), this.adapter.getRepository().name));
                         grid.expand();
@@ -1983,7 +2027,8 @@
                         var results = result.QueryResult.Results;
                         if (results && results.length) {
                             var ref = results[0]._ref;
-                            var detailLink = Rally.util.Navigation.createRallyDetailUrl(ref);
+                            //var detailLink = Rally.util.Navigation.createRallyDetailUrl(ref);
+                            var detailLink = Rally.util.DetailLinkBuilder.build("foo", ref, true);
                             window.open(detailLink, 'detailpage');
                         }
                     }
@@ -2175,6 +2220,10 @@
             font-size: 14px;
         }        .changeset-browser-title .x-panel-body {
             font-size: 18px;
+        }
+        
+        .changeset-browser-toolbar {
+        	background-color: 	#ffffff;
         }        .changeset-files-grid .x-panel-body {
             border-bottom: 1px solid #999;
             border-top: 1px solid #999 !important;

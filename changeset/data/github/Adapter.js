@@ -44,7 +44,7 @@ Ext.define('changeset.data.github.Adapter', {
      * @cfg {String}
      * Base url for all Github api requests.
      */
-    apiUrl: 'https://api.github.com',
+    apiUrl: 'https://github.paypal.com/api/v3',
 
     /**
      * @cfg {Int}
@@ -131,7 +131,7 @@ Ext.define('changeset.data.github.Adapter', {
      * @return {String}
      */
     getRepositoryUrl: function() {
-        return 'https://github.com/' + this._getRepoPath();
+        return 'https://github.paypal.com/' + this._getRepoPath();
     },
 
     /*
